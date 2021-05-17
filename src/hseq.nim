@@ -129,73 +129,51 @@ macro makeHseq(name: untyped, types: typedesc): untyped =
     type `name` = seq[`elementName`]
   result.add genAdd(name, types, allowedTypes)
   result.add genInitProcs(name, allowedTypes)
-  echo result.repr
 
-proc parseCaseOf(body, value, seqType, alias: NimNode, mutable = false): NimNode =
-  var 
-    ops: Table[string, NimNode]
-    elseOp = newEmptyNode()
-  
+proc extractCaseOfBody(body: NimNode): (Table[string, NimNode], NimNode) =
+  result[1] = newEmptyNode()
   for x in body:
-    if x.kind == nnkCommand and x[0].eqident("caseOf"):
-      let types = x[1].extractTypes
+    if x.kind == nnkCommand and x[0].eqident("caseOf"): # Check if it's a `caseof T`
+      let types = x[1].extractTypes # All the types stored at that node recursively
       for typ in types:
         let typ = typ.toCleanIdent
-        assert typ notin ops, "Duplicated case conditions"
-        ops[typ] = x[2].copyNimTree()
+        assert typ notin result[0], "Duplicated case conditions" # Presently dont allow multiple cases
+        result[0][typ] = x[2].copyNimTree()
       if x[^1].kind == nnkElse:
-        elseOp = x[^1][0]
+        result[1] = x[^1][0]
 
+
+proc parseCaseOf(body, value, seqType, alias: NimNode, mutable = false): NimNode =
   let 
+    (ops, elseOp) = extractCaseOfBody(body)
     caseStmt = nnkCaseStmt.newNimNode()
   caseStmt.add newDotExpr(value, ident("kind"))
-  if ops.len > 0:
-    for x in caseTable[$seqType]:
-      let 
-        typeName = x[0].toCleanIdent
-        fieldName = x[1].toValName(($seqType).len)
-      let itConstr =
+  for x in caseTable[$seqType]:
+    let 
+      typeName = x[0].toCleanIdent
+      fieldName = x[1].toValName(($seqType).len)
+      itConstr = # Alias byaddr so we can pretend it's the value type for "free"
         if mutable:
           let newAlias = nnkPragmaExpr.newTree(alias, nnkPragma.newTree(ident"byaddr"))
           newVarStmt(newAlias, newDotExpr(value, fieldName))
         else:
           newLetStmt(alias, newDotExpr(value, fieldName))
-      if typeName in ops:
-        let 
-          newStmt = x.copyNimTree()
-          bodyCopy = ops[typeName].copyNimTree
-        bodyCopy.insert 0, itConstr
-        newStmt.add bodyCopy
-        newStmt.del(0, 1)
-        caseStmt.add newStmt
-      elif elseOp.kind != nnkEmpty:
-        let 
-          newStmt = x.copyNimTree()
-          bodyCopy = elseOp.copyNimTree
-        bodyCopy.insert 0, itConstr
-        newStmt.add bodyCopy
-        newStmt.del(0, 1)
-        caseStmt.add newStmt
+      bodyCopy = # Based off what we have we want to add bodies
+        if typeName in ops:
+          ops[typeName].copyNimTree
+        elif elseOp.kind != nnkEmpty:
+          elseOp.copyNimTree
+        elif ops.len == 0:
+            body.copyNimTree()
+        else:
+          newStmtList()
+      newStmt = x.copyNimTree
 
-    if elseOp.kind == nnkEmpty:
-      let discardStmt = nnkElse.newTree(nnkStmtList.newTree(nnkDiscardStmt.newTree(newEmptyNode())))
-      caseStmt.add discardStmt
-  else:
-    for x in caseTable[$seqType]:
-      let 
-        fieldName = x[1].toValName(($seqType).len)
-        itConstr = 
-          if mutable:
-            let newAlias = nnkPragmaExpr.newTree(alias, nnkPragma.newTree(ident"byaddr"))
-            newVarStmt(newAlias, newDotExpr(value, fieldName))
-          else:
-            newLetStmt(alias, newDotExpr(value, fieldName))
-        newStmt = x.copyNimTree()
-        bodyCopy = body.copyNimTree()
-      bodyCopy.insert 0, itConstr
-      newStmt.add bodyCopy
-      newStmt.del(0, 1)
-      caseStmt.add newStmt
+    bodyCopy.insert 0, itConstr # insert `let it = x`
+    newStmt.add bodyCopy
+    newStmt.del(0, 1) # Remove the sym node from new stmt
+    caseStmt.add newStmt
+
   result = nnkStmtList.newTree(caseStmt)
 
 proc hseqIterImpl(body: NimNode, mutable = false): NimNode =
@@ -267,9 +245,11 @@ macro filter*(hseq: typed, val: typedesc): untyped =
       dec i
 
 macro hSeqItems*(a: ForLoopStmt): untyped =
+  ## Allows easy iteration immutably over `hseq`s
   hseqIterImpl(a)
 
 macro hSeqMitems*(a: ForLoopStmt): untyped =
+  ## Allows easy iteration mutably over `hseq`
   hseqIterImpl(a, true)
 
 when isMainModule:
@@ -284,15 +264,10 @@ when isMainModule:
   a.add(0.5)
 
   a.withIndex(1):
-    caseof int:
-      echo it * 3
-    else:
-      echo it * 2
+    echo it * 2
 
   for it in hSeqItems(a):
     echo it
-
-  echo "\n\nMutate! \n\n "
 
   for it in hSeqMitems(a):
     caseof int:
@@ -304,14 +279,19 @@ when isMainModule:
 
   for it in hSeqItems(a):
     echo it
+
   a.add(300)
   a.add(400)
   a.add(0.5)
+
   echo a.find(int)
   echo a.find(float)
   a.filter(float)
+
   for it in hSeqItems(a):
     echo it
+
   a{0} = 10.0
+
   for it in hseqItems(a):
     echo it
