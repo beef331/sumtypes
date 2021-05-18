@@ -21,10 +21,10 @@ yourSeq.add 1.0
 Along with those helpers there are also a variety of helper macros:
 ```nim
 # Iterators need to be called `hseqItems(yourSeq)`
-for it in hseqItems(yourSeq): # Immutable iteration over the seq.
+yourSeq.foreach(it): # Immutable iteration over the seq.
   echo it
 
-for it in hseqmItems(yourSeq): # Mutable iteration over the seq.
+yourSeq.foreachMut(it): # Mutable iteration over the seq.
   echo it
 
 assert yourSeq.find(float) == @[1.0] # `find` will return a new seq of the type queried.
@@ -47,7 +47,7 @@ With any the above macros that emit `it` you can use a `caseof` statement with `
 This caseof and else only works at the root level, and if it's omitted the body is ran for all kinds in the `seq`.
 It also works any typeclasses so you can use `SomeInteger` or `SomeFloat`.
 ```nim
-for x in hseqItems(yourSeq):
+yourSeq.foreach(x):
   caseof int:
     echo x
   caseof float:

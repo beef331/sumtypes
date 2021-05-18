@@ -6,7 +6,7 @@ const
   typeTable = CacheTable"HseqTypeTable"
   caseTable = CacheTable"HseqCaseTable"
 
-{.experimental: "dynamicBindSym".} # Needed so we dont have to pass type in
+#{.experimental: "dynamicBindSym".} # Needed so we dont have to pass type in
 
 proc extractTypes(n: NimNode): seq[NimNode] =
   case n.kind:
@@ -27,15 +27,8 @@ proc extractTypes(n: NimNode): seq[NimNode] =
   of nnkBracketExpr:
     result.add n
   of nnkIdent:
-    let binded = n.bindSym() # bind a sym so we can look it up
-    if binded.kind != nnkClosedSymChoice:
-      let impl = binded.getImpl # Get impl so we can get typ
-      case impl.kind
-      of nnkNilLit:
-        result.add n
-      of nnkProcDef: discard
-      else:
-        result.add impl.extractTypes
+    if not n.eqident("or"):
+      result.add n
   of nnkPar: # Anonymous tuple support
     result.add n
   else: discard
@@ -92,7 +85,7 @@ proc genInitProcs(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
       fieldName = x[1].toValName(strName.len)
       enm = x[1]
     result.add quote do:
-      proc `procName`(val: `typ`): `entryTyp` {.inline.} = 
+      proc `procName`*(val: `typ`): `entryTyp` {.inline.} = 
         ## Allows easy creation of Entries
         `entryTyp`(kind: `enm`, `fieldName`: val)
       proc `assignProc`*(hseq: var `name`, i: int, val: `typ`) {.inline.} = 
@@ -138,7 +131,7 @@ proc extractCaseOfBody(body: NimNode): (Table[string, NimNode], NimNode) =
       for typ in types:
         let typ = typ.toCleanIdent
         assert typ notin result[0], "Duplicated case conditions" # Presently dont allow multiple cases
-        result[0][typ] = x[2].copyNimTree()
+        result[0][typ] = x[^1].copyNimTree()
       if x[^1].kind == nnkElse:
         result[1] = x[^1][0]
 
@@ -168,7 +161,6 @@ proc parseCaseOf(body, value, seqType, alias: NimNode, mutable = false): NimNode
         else:
           newStmtList()
       newStmt = x.copyNimTree
-
     bodyCopy.insert 0, itConstr # insert `let it = x`
     newStmt.add bodyCopy
     newStmt.del(0, 1) # Remove the sym node from new stmt
@@ -176,19 +168,15 @@ proc parseCaseOf(body, value, seqType, alias: NimNode, mutable = false): NimNode
 
   result = nnkStmtList.newTree(caseStmt)
 
-proc hseqIterImpl(body: NimNode, mutable = false): NimNode =
+proc iterImpl(hSeq, body, alias: NimNode, mutable = false): NimNode =
   let
-    alias = body[0]
-    seqName = body[1][1]
-    body = body[^1]
-    seqType = bindSym(seqName).getImpl[1]
+    seqType = hSeq.getImpl[1]
     iName = gensym(nskVar, "i")
-    indexed = nnkBracketExpr.newTree(seqName, iName)
+    indexed = nnkBracketExpr.newTree(hSeq, iName)
     caseStmt = parseCaseOf(body, indexed, seqType, alias, mutable)
-  
   result = quote do:
     var `iName` = 0
-    while `iName` < `seqName`.len:
+    while `iName` < `hSeq`.len:
       block:
         `caseStmt`
       inc `iName`
@@ -244,54 +232,20 @@ macro filter*(hseq: typed, val: typedesc): untyped =
         `hSeq`.delete(i)
       dec i
 
-macro hSeqItems*(a: ForLoopStmt): untyped =
+#[
+# Until we can get typed nodes from ForLoopStmt
+macro hSeqItems(a: ForLoopStmt): untyped =
   ## Allows easy iteration immutably over `hseq`s
   hseqIterImpl(a)
 
-macro hSeqMitems*(a: ForLoopStmt): untyped =
+macro hSeqMitems(a: ForLoopStmt): untyped =
   ## Allows easy iteration mutably over `hseq`
   hseqIterImpl(a, true)
+]#
 
-when isMainModule:
-  type 
-    TestType = object
-    AcceptedTypes = int or float
+macro foreach*(hseq: typed, val, body: untyped): untyped =
+  result = iterImpl(hseq, body, val)
 
-  makeHseq(Test, AcceptedTypes)
+macro foreachMut*(hseq: typed, val, body: untyped): untyped =
+  result = iterImpl(hseq, body, val, true)
 
-  var a: Test
-  a.add(300)
-  a.add(0.5)
-
-  a.withIndex(1):
-    echo it * 2
-
-  for it in hSeqItems(a):
-    echo it
-
-  for it in hSeqMitems(a):
-    caseof int:
-      it = 40
-
-  # Remove the last value
-  a.pop():
-    echo "Buh buy ", it
-
-  for it in hSeqItems(a):
-    echo it
-
-  a.add(300)
-  a.add(400)
-  a.add(0.5)
-
-  echo a.find(int) # Returns all ints in `a`
-  echo a.find(float) # Returns all floats in `a`
-  a.filter(float) # Removes all floats
-
-  for it in hSeqItems(a):
-    echo it
-
-  a{0} = 10.1
-
-  for it in hseqItems(a):
-    echo it
