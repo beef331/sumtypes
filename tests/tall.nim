@@ -29,8 +29,8 @@ a.add(300)
 a.add(400)
 a.add(0.5)
 
-echo a.find(int) # Returns all ints in `a`
-echo a.find(float) # Returns all floats in `a`
+assert a.toSeq(int) == @[40, 300, 400]
+assert a.toSeq(float) == @[0.5]# Returns all floats in `a`
 a.filter(float) # Removes all floats
 a.foreach(it): 
   echo it

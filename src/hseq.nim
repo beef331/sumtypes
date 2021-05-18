@@ -207,7 +207,7 @@ proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =
       result[1] = x[1]
       break
 
-macro find*(hseq: typed, val: typedesc): untyped =
+macro toSeq*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` returning all variants of the given type
   let seqType = hseq.getImpl[1]
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
@@ -221,7 +221,19 @@ macro find*(hseq: typed, val: typedesc): untyped =
       res
 
 macro filter*(hseq: typed, val: typedesc): untyped =
-  ## Iterates the `hseq` removing all variants that map to that type
+  ## Iterates the `hseq` removing all variants that do not map to that type
+  let seqType = hseq.getImpl[1]
+  var (fieldName, enumName) = getFieldEnumName(seqType, val)
+  assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
+  result = quote do:
+    var i = `hSeq`.high
+    while i > 0:
+      if `hseq`[i].kind != `enumName`:
+        `hSeq`.delete(i)
+      dec i
+
+macro drop*(hseq: typed, val: typedesc): untyped =
+  ## Iterates the `hseq` removing all variants that do map to that type
   let seqType = hseq.getImpl[1]
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
@@ -231,6 +243,7 @@ macro filter*(hseq: typed, val: typedesc): untyped =
       if `hseq`[i].kind == `enumName`:
         `hSeq`.delete(i)
       dec i
+
 
 #[
 # Until we can get typed nodes from ForLoopStmt

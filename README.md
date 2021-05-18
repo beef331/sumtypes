@@ -27,8 +27,9 @@ yourSeq.foreach(it): # Immutable iteration over the seq.
 yourSeq.foreachMut(it): # Mutable iteration over the seq.
   echo it
 
-assert yourSeq.find(float) == @[1.0] # `find` will return a new seq of the type queried.
-yourSeq.filter(float) # This will remove all instances of the `float` variant from the list.
+assert yourSeq.toSeq(float) == @[1.0] # `find` will return a new seq of the type queried.
+yourSeq.drop(float) # This will remove all instances of the `float` variant from the list.
+yourSeq.filter(int) # This will remove all other types other than `int`
 assert yourSeq.len == 1
 
 yourSeq.withIndex(0): # Returns a mutable reference to the element in the list.
