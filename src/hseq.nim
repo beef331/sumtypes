@@ -75,7 +75,7 @@ proc genAdd(name, typD: NimNode, allowedTypes: seq[NimNode]): NimNode =
   body.del(1, body.len - 1)
   
   result = quote do:
-    proc add(`theSeq`: var `name`, `toAdd`: `typD`) = 
+    proc add*(`theSeq`: var `name`, `toAdd`: `typD`) = 
       `body`
 
 proc genInitProcs(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
@@ -92,10 +92,10 @@ proc genInitProcs(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
       fieldName = x[1].toValName(strName.len)
       enm = x[1]
     result.add quote do:
-      proc `procName`(val: `typ`): `entryTyp` {.inline.} = 
+      proc `procName`*(val: `typ`): `entryTyp` {.inline.} = 
         ## Allows easy creation of Entries
         `entryTyp`(kind: `enm`, `fieldName`: val)
-      proc `assignProc`(hseq: var `name`, i: int, val: `typ`) {.inline.} = 
+      proc `assignProc`*(hseq: var `name`, i: int, val: `typ`) {.inline.} = 
         ## Used to assign indicies directly as if it was a `seq[val.Type]`
         hseq[i] = `procName`(val)
 
@@ -111,10 +111,10 @@ macro makeHseq(name: untyped, types: typedesc): untyped =
   typeTable[strName] = types
 
   result = newStmtList()
-  result.add newEnum(enumName, enumvals, false, true)
+  result.add newEnum(enumName, enumvals, true, true)
   let 
     entryType = quote do:
-      type `elementName` = object
+      type `elementName`* = object
         case `kind`: `enumName`
     recList = entryType[^1][^1][^1][^1]
   for x in caseTable[strName]:
