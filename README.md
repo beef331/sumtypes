@@ -1,7 +1,7 @@
 # hseq - An easy to use Nim heterogeneous sequence library
 
 ## How to use
-First defined a typeclass of the types you want to store in the collection:
+First define a typeclass of the types you want to store in the collection:
 ```nim
 type AcceptedTypes = int or float
 ```
