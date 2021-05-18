@@ -273,7 +273,7 @@ when isMainModule:
     caseof int:
       it = 40
 
-  # Remove the float
+  # Remove the last value
   a.pop():
     echo "Buh buy ", it
 
@@ -284,14 +284,14 @@ when isMainModule:
   a.add(400)
   a.add(0.5)
 
-  echo a.find(int)
-  echo a.find(float)
-  a.filter(float)
+  echo a.find(int) # Returns all ints in `a`
+  echo a.find(float) # Returns all floats in `a`
+  a.filter(float) # Removes all floats
 
   for it in hSeqItems(a):
     echo it
 
-  a{0} = 10.0
+  a{0} = 10.1
 
   for it in hseqItems(a):
     echo it
