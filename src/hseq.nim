@@ -92,14 +92,14 @@ proc genInitProcs(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
       fieldName = x[1].toValName(strName.len)
       enm = x[1]
     result.add quote do:
-      proc `procName`*(val: `typ`): `entryTyp` {.inline.} = 
+      proc `procName`(val: `typ`): `entryTyp` {.inline.} = 
         ## Allows easy creation of Entries
         `entryTyp`(kind: `enm`, `fieldName`: val)
       proc `assignProc`*(hseq: var `name`, i: int, val: `typ`) {.inline.} = 
         ## Used to assign indicies directly as if it was a `seq[val.Type]`
         hseq[i] = `procName`(val)
 
-macro makeHseq(name: untyped, types: typedesc): untyped =
+macro makeHseq*(name: untyped, types: typedesc): untyped =
   let
     strName = $name
     allowedTypes = types.extractTypes
@@ -111,10 +111,10 @@ macro makeHseq(name: untyped, types: typedesc): untyped =
   typeTable[strName] = types
 
   result = newStmtList()
-  result.add newEnum(enumName, enumvals, true, true)
+  result.add newEnum(enumName, enumvals, false, true)
   let 
     entryType = quote do:
-      type `elementName`* = object
+      type `elementName` = object
         case `kind`: `enumName`
     recList = entryType[^1][^1][^1][^1]
   for x in caseTable[strName]:
