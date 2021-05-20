@@ -20,20 +20,10 @@ yourSeq.add 1.0
 ```
 Along with those helpers there are also a variety of helper macros:
 ```nim
-# Iterators need to be called `hseqItems(yourSeq)`
-yourSeq.foreach(it): # Immutable iteration over the seq.
-  echo it
-
-yourSeq.foreachMut(it): # Mutable iteration over the seq.
-  echo it
-
-assert yourSeq.toSeq(float) == @[1.0] # `find` will return a new seq of the type queried.
+assert yourSeq.toSeq(float) == @[1.0] # `toSeq` will return a new seq of the type queried.
 yourSeq.drop(float) # This will remove all instances of the `float` variant from the list.
 yourSeq.filter(int) # This will remove all other types other than `int`
 assert yourSeq.len == 1
-
-yourSeq.withIndex(0): # Returns a mutable reference to the element in the list.
-  echo it
 
 yourSeq{0} = 100 # A array assignment macro that constructs a new object from the right hand.
 
@@ -44,13 +34,26 @@ yourSeq.pop: # Removes the last element, passing `it` into the body.
 assert yourSeq.len == 0
 ```
 
-With any the above macros that emit `it` you can use a `caseof` statement with `else` to easily control logic as types.
-This caseof and else only works at the root level, and if it's omitted the body is ran for all kinds in the `seq`.
-It also works any typeclasses so you can use `SomeInteger` or `SomeFloat`.
+Along with the `TypeNameEntry` comes a case statement macro which allows using types to control flow. Internally `it` is emitted for the unpacked value.
 ```nim
-yourSeq.foreach(x):
-  caseof int:
-    echo x
-  caseof float:
-    echo x * 10.0
+type AcceptedTypes = float or int
+makeHseq(Numbers, AcceptedTypes)
+var a: Numbers
+a.add(100)
+a.add(1.0)
+
+for x in a:
+  case x:
+  of int: echo "Hey int: ", it
+  of float: echo "Hey float: ", it
 ```
+
+There is also a `unpack` macro which allows unpacking to the root value and running the code for all types. Internally `it` is emitted for the body.
+```nim
+for x in a:
+  unpack(x):
+    echo it
+  x.unpack(someVal): # Also can control aliasing
+    echo someVal 
+```
+

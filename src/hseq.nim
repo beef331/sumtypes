@@ -1,12 +1,9 @@
 import std/[macros, macrocache, strutils, tables, decls, sugar]
 export decls, sugar
 
-
 const 
   typeTable = CacheTable"HseqTypeTable"
   caseTable = CacheTable"HseqCaseTable"
-
-#{.experimental: "dynamicBindSym".} # Needed so we dont have to pass type in
 
 proc extractTypes(n: NimNode): seq[NimNode] =
   case n.kind:
@@ -33,7 +30,7 @@ proc extractTypes(n: NimNode): seq[NimNode] =
     result.add n
   else: discard
 
-proc toCleanIdent(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]",""))
+proc toCleanIdent*(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]",""))
 
 proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]= 
   ## Takes a list of types converts them into enumNames and adds the caseStmt
@@ -44,7 +41,7 @@ proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]=
     result.add enumVal
   caseTable[typeName] = cstmt
 
-proc toValName(val: NimNode, nameSize: int): NimNode = ident(($val).toLowerAscii[nameSize..^1] & "Val")
+proc toValName*(val: NimNode, nameSize: int): NimNode = ident(($val).toLowerAscii[nameSize..^1] & "Val")
 
 proc genAdd(name, typD: NimNode, allowedTypes: seq[NimNode]): NimNode =
   let
@@ -92,6 +89,94 @@ proc genInitProcs(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
         ## Used to assign indicies directly as if it was a `seq[val.Type]`
         hseq[i] = `procName`(val)
 
+template makeMatch*(typeToMatch: typed) {.dirty.}= 
+  import std/[macros, macrocache]
+  {.experimental: "caseStmtMacros".}
+  
+  proc caseImpl(body: NimNode, mutable = false): Nimnode = 
+    result = body
+    let 
+      a = $typeToMatch
+      typ = a[0..^6]
+      accessor = result[0].copyNimTree()
+    result[0] = newDotExpr(result[0], ident"kind")
+    let elseBody = result[^1]
+    for base in CacheTable"HseqCaseTable"[typ]:
+      let 
+        fieldName = base[1].toValName(typ.len)
+        fieldAccess = newDotExpr(accessor, fieldName)
+        itDef = 
+          if mutable:
+            let byAddr = nnkPragmaExpr.newTree(ident"it", nnkPragma.newTree(ident"byaddr"))
+            newVarStmt(byAddr, fieldAccess)
+          else:
+            newLetStmt(ident"it", fieldAccess)
+
+      block searchType:
+        for i, newCond in result[1..^1]:
+          if base[0].eqIdent(newCond[0]):
+            newCond[0] = base[1]
+            newCond[^1].insert 0, itDef
+            result[i + 1] = newCond
+            break searchType# We found out node, skip elseGeneration
+
+        if elseBody.kind == nnkElse: # We want to emit `of `int`: let it = `a.intval`
+          let newBranch = nnkOfBranch.newTree(base[1])
+          newBranch.add elseBody[0].copyNimTree
+          newBranch[^1].insert 0, itDef
+          result.insert result.len - 1, newBranch
+
+    if result[^1].kind == nnkElse:
+      result.del(result.len - 1, 1)
+
+  proc unpackImpl(name, body: NimNode, itName = ident"it", mutable = false): Nimnode =
+    let 
+      a = $typeToMatch
+      typ = a[0..^6]
+    result = nnkCaseStmt.newTree(newDotExpr(name, ident"kind"))
+    for x in CacheTable"HseqCaseTable"[typ]:
+      result.add x.copyNimTree()
+      result[^1].del(0, 1)
+      let 
+        fieldName = x[1].toValName(typ.len)
+        fieldAccess = newDotExpr(name, fieldName)
+        itDef = 
+          if mutable:
+            let byAddr = nnkPragmaExpr.newTree(itName, nnkPragma.newTree(ident"byaddr"))
+            newVarStmt(byAddr, fieldAccess)
+          else:
+            newLetStmt(itName, fieldAccess)
+        copyBody = body.copyNimTree
+      copyBody.insert 0, itDef
+      result[^1].add copyBody
+
+
+  macro unpack*(name: typeToMatch, body: untyped): untyped =
+    result = unpackImpl(name, body)
+
+  macro unpack*(name: var typeToMatch, body: untyped): untyped =
+    result = unpackImpl(name, body, mutable = true)
+  
+  macro unpack*(name: typeToMatch, itName, body: untyped): untyped =
+    result = unpackImpl(name, body, itName)
+
+  macro unpack*(name: var typeToMatch, itName, body: untyped): untyped =
+    result = unpackImpl(name, body, itName, true)
+
+  when (NimMajor, NimMinor) < (1, 5):
+    macro match*(entry: typeToMatch): untyped =
+     result = caseImpl(entry)
+
+    macro match*(entry: var typeToMatch): untyped =
+      result = caseImpl(entry, true)
+  else:
+    macro `case`*(entry: typeToMatch): untyped =
+     result = caseImpl(entry)
+
+    macro `case`*(entry: var typeToMatch): untyped =
+      result = caseImpl(entry, true)
+
+
 macro makeHseq*(name: untyped, types: typedesc): untyped =
   let
     strName = $name
@@ -122,81 +207,7 @@ macro makeHseq*(name: untyped, types: typedesc): untyped =
     type `name` = seq[`elementName`]
   result.add genAdd(name, types, allowedTypes)
   result.add genInitProcs(name, allowedTypes)
-
-proc extractCaseOfBody(body: NimNode): (Table[string, NimNode], NimNode) =
-  result[1] = newEmptyNode()
-  for x in body:
-    if x.kind == nnkCommand and x[0].eqident("caseOf"): # Check if it's a `caseof T`
-      let types = x[1].extractTypes # All the types stored at that node recursively
-      for typ in types:
-        let typ = typ.toCleanIdent
-        assert typ notin result[0], "Duplicated case conditions" # Presently dont allow multiple cases
-        result[0][typ] = x[^1].copyNimTree()
-      if x[^1].kind == nnkElse:
-        result[1] = x[^1][0]
-
-
-proc parseCaseOf(body, value, seqType, alias: NimNode, mutable = false): NimNode =
-  let 
-    (ops, elseOp) = extractCaseOfBody(body)
-    caseStmt = nnkCaseStmt.newNimNode()
-  caseStmt.add newDotExpr(value, ident("kind"))
-  for x in caseTable[$seqType]:
-    let 
-      typeName = x[0].toCleanIdent
-      fieldName = x[1].toValName(($seqType).len)
-      itConstr = # Alias byaddr so we can pretend it's the value type for "free"
-        if mutable:
-          let newAlias = nnkPragmaExpr.newTree(alias, nnkPragma.newTree(ident"byaddr"))
-          newVarStmt(newAlias, newDotExpr(value, fieldName))
-        else:
-          newLetStmt(alias, newDotExpr(value, fieldName))
-      bodyCopy = # Based off what we have we want to add bodies
-        if typeName in ops:
-          ops[typeName].copyNimTree
-        elif elseOp.kind != nnkEmpty:
-          elseOp.copyNimTree
-        elif ops.len == 0:
-            body.copyNimTree()
-        else:
-          newStmtList()
-      newStmt = x.copyNimTree
-    bodyCopy.insert 0, itConstr # insert `let it = x`
-    newStmt.add bodyCopy
-    newStmt.del(0, 1) # Remove the sym node from new stmt
-    caseStmt.add newStmt
-
-  result = nnkStmtList.newTree(caseStmt)
-
-proc iterImpl(hSeq, body, alias: NimNode, mutable = false): NimNode =
-  let
-    seqType = hSeq.getImpl[1]
-    iName = gensym(nskVar, "i")
-    indexed = nnkBracketExpr.newTree(hSeq, iName)
-    caseStmt = parseCaseOf(body, indexed, seqType, alias, mutable)
-  result = quote do:
-    var `iName` = 0
-    while `iName` < `hSeq`.len:
-      block:
-        `caseStmt`
-      inc `iName`
-
-macro withIndex*(hSeq: typed, index: int, body: untyped): untyped =
-  ## Can index the `hSeq` with an int then operate on the bodys
-  ## Using an additive body so `caseof SomeInteger` + `caseof int`'s bodies
-  let 
-    typ = hSeq.getImpl[1]
-    indexed = nnkBracketExpr.newTree(hSeq, index)
-  result = parseCaseOf(body, indexed, typ, ident("it"), true)
-
-macro pop*(hseq: typed, body: untyped): untyped =
-  ## Pops the top object of the object and can operate on it
-  let 
-    typ = hseq.getImpl[1]
-    valueId = gensym(nskVar, "Val")
-  result = nnkStmtList.newTree quote do:
-    var `valueId` = `hSeq`.pop
-  result.add parseCaseOf(body, valueId, typ, ident("it"), true)
+  result.add newCall(ident"makeMatch", elementName)
 
 proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =
   ## Give a type and a val iterate through the casestmt to extract,
@@ -243,22 +254,3 @@ macro drop*(hseq: typed, val: typedesc): untyped =
       if `hseq`[i].kind == `enumName`:
         `hSeq`.delete(i)
       dec i
-
-
-#[
-# Until we can get typed nodes from ForLoopStmt
-macro hSeqItems(a: ForLoopStmt): untyped =
-  ## Allows easy iteration immutably over `hseq`s
-  hseqIterImpl(a)
-
-macro hSeqMitems(a: ForLoopStmt): untyped =
-  ## Allows easy iteration mutably over `hseq`
-  hseqIterImpl(a, true)
-]#
-
-macro foreach*(hseq: typed, val, body: untyped): untyped =
-  result = iterImpl(hseq, body, val)
-
-macro foreachMut*(hseq: typed, val, body: untyped): untyped =
-  result = iterImpl(hseq, body, val, true)
-
