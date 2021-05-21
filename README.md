@@ -25,7 +25,7 @@ yourSeq.drop(float) # This will remove all instances of the `float` variant from
 yourSeq.filter(int) # This will remove all other types other than `int`
 assert yourSeq.len == 1
 
-yourSeq{0} = 100 # A array assignment macro that constructs a new object from the right hand.
+yourSeq[0] = 100 # A array assignment macro that constructs a new object from the right hand.
 
 yourSeq[0] = initIntFloatEntry(100) # The above is the same as doing this, makes new variant and assigns it.
 
