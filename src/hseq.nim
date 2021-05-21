@@ -1,9 +1,7 @@
 import std/[macros, macrocache, strutils, tables, decls, sugar]
 export decls, sugar
 
-const 
-  typeTable = CacheTable"HseqTypeTable"
-  caseTable = CacheTable"HseqCaseTable"
+const caseTable = CacheTable"HseqCaseTable"
 
 proc extractTypes(n: NimNode): seq[NimNode] =
   case n.kind:
@@ -30,7 +28,7 @@ proc extractTypes(n: NimNode): seq[NimNode] =
     result.add n
   else: discard
 
-proc toCleanIdent*(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]",""))
+proc toCleanIdent*(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]","")).capitalizeAscii
 
 proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]= 
   ## Takes a list of types converts them into enumNames and adds the caseStmt
@@ -41,71 +39,48 @@ proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]=
     result.add enumVal
   caseTable[typeName] = cstmt
 
-proc toValName*(val: NimNode, nameSize: int): NimNode = ident(($val).toLowerAscii[nameSize..^1] & "Val")
+proc toValName*(val: NimNode): NimNode = ident(($val).toLowerAscii & "Val")
 
 proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
   let
     strName = $name
     procName = ident"$"
     entryName = ident"entry"
-    entryTyp = ident(strName & "entry")
-    stmt = caseTable[strName]
     body = nnkCaseStmt.newTree(newDotExpr(entryName, ident"kind"))
-  for i, x in stmt:
+  for i, x in caseTable[strName]:
     let 
-      fieldName = x[1].toValName(strName.len)
+      fieldName = x[0].toValName
       enm = x[1]
     body.add nnkOfBranch.newTree(enm, newCall(procName, newDotExpr(entryName, fieldName)))
 
   result = quote do:
-    proc `procName`*(`entryName`: `entryTyp`): string = 
+    proc `procName`*(`entryName`: `name`): string = 
       `body`
 
-proc genAdd(name, typd: NimNode, allowedTypes: seq[NimNode]): NimNode =
+proc genConverters(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
   let
     strName = $name
-    theSeq = ident("hseq")
-    toAdd = ident("toAdd")
-    entryTyp = ident(strName & "entry")
-    stmt = caseTable[strName]
-    body = newStmtList()
-  for i, x in stmt:
-    let 
-      typ = x[0]
-      fieldName = x[1].toValName(strName.len)
-      enm = x[1]
-    body.add quote do:
-      when type(`toAdd`) is `typ`:
-        `theSeq`.add `entryTyp`(kind: `enm`, `fieldName`: `toAdd`)
-    if i > 0:
-      body[^1] = body[^1][0]
-  body[0].add body[1..^1]
-  body.del(1, body.len - 1)
-  
-  result = quote do:
-    proc add*(`theSeq`: var `name`, `toAdd`: `typD`) = 
-      `body`
-
-proc genInitProcs(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
-  let
-    strName = $name
-    entryTyp = ident(strName & "entry")
-    procName = ident("init" & $entryTyp)
-    assignProc = nnkAccQuoted.newTree(ident("{}="))
-    stmt = caseTable[strName]
+    converterName = ident("to" & strName)
   result = newStmtList()
-  for i, x in stmt:
+  for i, x in allowedTypes:
+    let 
+      fieldName = x.toValName()
+      enm = ident(strName & x.toCleanIdent)
+    result.add quote do:
+      converter `converterName`*(val: `x`): `name` = `name`(kind: `enm`, `fieldName`: val) 
+
+proc genInitProcs(entryTyp: NimNode, allowedTypes: seq[NimNode]): NimNode =
+  let procName = ident("init" & $entryTyp)
+  result = newStmtList()
+  for i, x in caseTable[$entryTyp]:
     let 
       typ = x[0]
-      fieldName = x[1].toValName(strName.len)
+      fieldName = x[0].toValName
       enm = x[1]
     result.add quote do:
       proc `procName`*(val: `typ`): `entryTyp` {.inline.} = 
         ## Allows easy creation of Entries
         `entryTyp`(kind: `enm`, `fieldName`: val)
-      proc `assignProc`*(hseq: var `name`, i: int, val: `typ`) {.inline.} = 
-        ## Used to assign indicies directly as if it was a `seq[val.Type]`
-        hseq[i] = `procName`(val)
 
 template makeMatch*(typeToMatch: typed) {.dirty.}= 
   import std/[macros, macrocache]
@@ -113,15 +88,12 @@ template makeMatch*(typeToMatch: typed) {.dirty.}=
   
   proc caseImpl(body: NimNode, mutable = false): Nimnode = 
     result = body
-    let 
-      a = $typeToMatch
-      typ = a[0..^6]
-      accessor = result[0].copyNimTree()
+    let accessor = result[0].copyNimTree()
     result[0] = newDotExpr(result[0], ident"kind")
     let elseBody = result[^1]
-    for base in CacheTable"HseqCaseTable"[typ]:
+    for base in CacheTable"HseqCaseTable"[$typeToMatch]:
       let 
-        fieldName = base[1].toValName(typ.len)
+        fieldName = base[0].toValName
         fieldAccess = newDotExpr(accessor, fieldName)
         itDef = 
           if mutable:
@@ -148,15 +120,12 @@ template makeMatch*(typeToMatch: typed) {.dirty.}=
       result.del(result.len - 1, 1)
 
   proc unpackImpl(name, body: NimNode, itName = ident"it", mutable = false): Nimnode =
-    let 
-      a = $typeToMatch
-      typ = a[0..^6]
     result = nnkCaseStmt.newTree(newDotExpr(name, ident"kind"))
-    for x in CacheTable"HseqCaseTable"[typ]:
+    for x in CacheTable"HseqCaseTable"[$typeToMatch]:
       result.add x.copyNimTree()
       result[^1].del(0, 1)
       let 
-        fieldName = x[1].toValName(typ.len)
+        fieldName = x[0].toValName
         fieldAccess = newDotExpr(name, fieldName)
         itDef = 
           if mutable:
@@ -194,52 +163,75 @@ template makeMatch*(typeToMatch: typed) {.dirty.}=
     macro `case`*(entry: var typeToMatch): untyped =
       result = caseImpl(entry, true)
 
-
-macro makeHseq*(name: untyped, types: typedesc): untyped =
+proc makeVariant(variantName, enumName: Nimnode, allowedTypes: seq[NimNode]): Nimnode =
+  ## Emits a variant for any given reason, can be used in any generic type this way,
+  ## instead of just a seq[T] alias.
   let
-    strName = $name
-    allowedTypes = types.extractTypes
-    enumVals = allowedTypes.generateEnumInfo($name)
-    enumName = ident($name & "Kind")
-    elementName = ident($name & "Entry")
-    kind = ident("kind")
-  
-  typeTable[strName] = types
-
+    varName = $variantName
+    kind = ident"kind"
   result = newStmtList()
-  result.add newEnum(enumName, enumvals, false, true)
+  result.add newEnum(enumName, generateEnumInfo(allowedTypes, varName), true, true)
   let 
-    entryType = quote do:
-      type `elementName` = object
+    typeDef = quote do:
+      type `variantName`* = object
         case `kind`: `enumName`
-    recList = entryType[^1][^1][^1][^1]
-  for x in caseTable[strName]:
+    recList = typeDef[^1][^1][^1][^1]
+  
+  for x in caseTable[varName]:
     let 
       val = x.copyNimTree
       typ = val[0]
     val.del(0, 1)
-    val.add newIdentDefs(val[0].toValName(strName.len), typ, newEmptyNode())
+    val.add newIdentDefs(typ.toValName, typ, newEmptyNode())
     recList.add val
-  result.add entryType
+  result.add typeDef
+  result.add genConverters(variantName, allowedTypes) 
+  result.add genInitProcs(variantName, allowedTypes)
+  result.add genStringOp(variantName, allowedTypes)
+  result.add newCall(ident"makeMatch", variantName)
+
+
+macro makeHseq*(name: untyped, types: typedesc): untyped =
+  ## Emits a alias of `type name = seq[NameEntry]` and also
+  ## NameEntryKind enum with all types in `types`
+  result = newStmtList()
+  let 
+    allowedTypes = types.extractTypes
+    typeName = ident($name & "Entry")
+  result.add makeVariant(typeName, ident($name & "EntryKind"), allowedTypes)
   result.add quote do:
-    type `name` = seq[`elementName`]
-  result.add genAdd(name, types, allowedTypes) 
-  result.add genInitProcs(name, allowedTypes)
-  result.add genStringOp(name, allowedTypes)
-  result.add newCall(ident"makeMatch", elementName)
+    type `name` = seq[`typeName`]
+
+
+macro makeHseq*(name, typeName: untyped, types: typedesc): untyped =
+  ## Variant of `makeHseq` which allows specifying the name of the EntryEmitted
+  result = newStmtList()
+  let 
+    allowedTypes = types.extractTypes 
+  result.add makeVariant(typeName, ident($typeName & "Kind"), allowedTypes)
+  result.add quote do:
+    type `name` = seq[`typeName`]
 
 proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =
   ## Give a type and a val iterate through the casestmt to extract,
   ## enum value and field name
   for x in caseTable[$seqType]:
     if x[0].eqIdent(val):
-      result[0] = x[1].toValName(($seqType).len)
+      result[0] = x[0].toValName
       result[1] = x[1]
       break
 
+proc getGenericType(node: NimNode): Nimnode =
+  result = node.getImpl
+  case result.kind:
+  of nnkIdentDefs:
+    result = result[1].getImpl[^1][^1]
+  else:
+    result = result[^1]
+
 macro toSeq*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` returning all variants of the given type
-  let seqType = hseq.getImpl[1]
+  let seqType = hseq.getGenericType
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
   result = quote do:
@@ -252,7 +244,7 @@ macro toSeq*(hseq: typed, val: typedesc): untyped =
 
 macro filter*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` removing all variants that do not map to that type
-  let seqType = hseq.getImpl[1]
+  let seqType = hseq.getGenericType
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
   result = quote do:
@@ -264,7 +256,7 @@ macro filter*(hseq: typed, val: typedesc): untyped =
 
 macro drop*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` removing all variants that do map to that type
-  let seqType = hseq.getImpl[1]
+  let seqType = hseq.getGenericType
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
   result = quote do:

@@ -42,7 +42,9 @@ a.filter(float) # Removes all floats
 for it in a:
   echo it
 
-a{0} = 10.1
+let b = 10
+
+a[0] = 10.1
 
 for it in a:
   unpack(it): # unpacks `it` and aliases `it` to that
