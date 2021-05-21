@@ -229,7 +229,7 @@ macro filter*(hseq: typed, val: typedesc): untyped =
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
   result = quote do:
     var i = `hSeq`.high
-    while i > 0:
+    while i >= 0:
       if `hseq`[i].kind != `enumName`:
         `hSeq`.delete(i)
       dec i
@@ -241,14 +241,13 @@ macro drop*(hseq: typed, val: typedesc): untyped =
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
   result = quote do:
     var i = `hSeq`.high
-    while i > 0:
+    while i >= 0:
       if `hseq`[i].kind == `enumName`:
         `hSeq`.delete(i)
       dec i
 
 template makeMatch*(typeToMatch: typed) {.dirty.} =
   ## For internal use only
-  import std/[macros, macrocache]
   {.experimental: "caseStmtMacros".}
 
   macro unpack*(name: typeToMatch, body: untyped): untyped =

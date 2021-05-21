@@ -3,61 +3,64 @@ import hseq
 type 
   AcceptedTypes = int or float
 
-makeHseq(Test, AcceptedTypes)
+
 makeVariant(NewObject, AcceptedTypes)
+block: # Make variant test.
 
-var t = 300.toNewObject
-unpack t:
-  assert it == 300
-t = 3.14
+  var t = 300.toNewObject
+  unpack t:
+    assert it == 300
+  t = 3.14
 
-case t:
-of float: assert it == 3.14 # Due to `int` or `float` need to ensure this only happens on float
-else: discard
-
-
-var a: Test
-
-a.add(300)
-case a[0]:
-of int:
-  discard
-else:
-  discard
-a.add(0.5)
-
-for it in a:
-  if true:
-    it.unpack:
-      echo it
-
-
-for it in a.mitems:
-  case it
-  of int:
-    it = 40
+  case t:
+  of float: assert it == 3.14 # Due to `int` or `float` need to ensure this only happens on float.
   else: discard
 
-for it in a:
-  case it:
+makeHseq(Test, AcceptedTypes)
+block: # Make Hseq test.
+  var a: Test
+
+  a.add(300)
+  case a[0]:
+  of int:
+    discard
   else:
-    echo it
+    discard
+  a.add(0.5)
 
-a.add(300)
-a.add(400)
-a.add(0.5)
+  for it in a:
+    if true:
+      it.unpack:
+        discard it
 
-assert a.toSeq(int) == @[40, 300, 400]
-assert a.toSeq(float) == @[0.5, 0.5]# Returns all floats in `a`
-a.filter(float) # Removes all floats
 
-for it in a:
-  echo it
+  for it in a.mitems:
+    case it
+    of int:
+      it = 40
+    else: discard
 
-a[0] = 10.1
+  for it in a:
+    case it:
+    else:
+      discard it
 
-for it in a:
-  unpack(it): # unpacks `it` and aliases `it` to that
-    echo it
-  it.unpack(test): #unpacks `it` to `test`
-    echo test
+  a.add(300)
+  a.add(400)
+  a.add(0.5)
+
+  assert a.toSeq(int) == @[40, 300, 400] # Returns all ints in `a`.
+  assert a.toSeq(float) == @[0.5, 0.5] # Returns all floats in `a`.
+
+  a.filter(float) # Removes everything but floats.
+  assert a.toSeq(float).len == a.len
+
+  a[0] = 10.1
+
+  assert a.toSeq(float) == @[10.1, 0.5]
+
+  for it in a:
+    unpack(it): # unpacks `it` and aliases the unpacked value to `it`.
+      discard it
+    it.unpack(test): # unpacks `it`, aliasing the underlying value to `test`.
+      discard test
