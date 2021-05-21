@@ -1,7 +1,7 @@
 import std/[macros, macrocache, strutils, tables, decls, sugar]
 export decls, sugar
 
-const caseTable = CacheTable"HseqCaseTable"
+const caseTable = CacheTable"CaseTable" # Holds `of T, enumName`
 
 proc extractTypes(n: NimNode): seq[NimNode] =
   case n.kind:
@@ -82,12 +82,13 @@ proc genInitProcs(entryTyp: NimNode, allowedTypes: seq[NimNode]): NimNode =
         ## Allows easy creation of Entries
         `entryTyp`(kind: `enm`, `fieldName`: val)
 
-proc caseImpl*(body: NimNode, typeToMatch: string, mutable = false): Nimnode = 
+proc caseImpl*(body: NimNode, typeToMatch: string, mutable = false): Nimnode =
+  ## For Internal use only
   result = body
   let accessor = result[0].copyNimTree()
   result[0] = newDotExpr(result[0], ident"kind")
   let elseBody = result[^1]
-  for base in CacheTable"HseqCaseTable"[typeToMatch]:
+  for base in CacheTable"CaseTable"[typeToMatch]:
     let 
       fieldName = base[0].toValName
       fieldAccess = newDotExpr(accessor, fieldName)
@@ -116,8 +117,9 @@ proc caseImpl*(body: NimNode, typeToMatch: string, mutable = false): Nimnode =
     result.del(result.len - 1, 1)
 
 proc unpackImpl*(name, body: NimNode, typeToMatch: string, itName = ident"it", mutable = false): Nimnode =
+  ## For internal use only
   result = nnkCaseStmt.newTree(newDotExpr(name, ident"kind"))
-  for x in CacheTable"HseqCaseTable"[typeToMatch]:
+  for x in CacheTable"CaseTable"[typeToMatch]:
     result.add x.copyNimTree()
     result[^1].del(0, 1)
     let 
@@ -132,34 +134,6 @@ proc unpackImpl*(name, body: NimNode, typeToMatch: string, itName = ident"it", m
       copyBody = body.copyNimTree
     copyBody.insert 0, itDef
     result[^1].add copyBody
-template makeMatch*(typeToMatch: typed) {.dirty.}= 
-  import std/[macros, macrocache]
-  {.experimental: "caseStmtMacros".}
-
-  macro unpack*(name: typeToMatch, body: untyped): untyped =
-    result = unpackImpl(name, body, $typeToMatch)
-
-  macro unpack*(name: var typeToMatch, body: untyped): untyped =
-    result = unpackImpl(name, body, $typeToMatch, mutable = true)
-  
-  macro unpack*(name: typeToMatch, itName, body: untyped): untyped =
-    result = unpackImpl(name, body, $typeToMatch, itName)
-
-  macro unpack*(name: var typeToMatch, itName, body: untyped): untyped =
-    result = unpackImpl(name, body, $typeToMatch, itName, true)
-
-  when (NimMajor, NimMinor) < (1, 5):
-    macro match*(entry: typeToMatch): untyped =
-     result = caseImpl(entry, $typeToMatch)
-
-    macro match*(entry: var typeToMatch): untyped =
-      result = caseImpl(entry, $typeToMatch, true)
-  else:
-    macro `case`*(entry: typeToMatch): untyped =
-     result = caseImpl(entry, $typeToMatch)
-
-    macro `case`*(entry: var typeToMatch): untyped =
-      result = caseImpl(entry, $typeToMatch, true)
 
 proc makeVariantImpl(variantName, enumName: Nimnode, allowedTypes: seq[NimNode]): Nimnode =
   ## Emits a variant for any given reason, can be used in any generic type this way,
@@ -271,3 +245,34 @@ macro drop*(hseq: typed, val: typedesc): untyped =
       if `hseq`[i].kind == `enumName`:
         `hSeq`.delete(i)
       dec i
+
+template makeMatch*(typeToMatch: typed) {.dirty.} =
+  ## For internal use only
+  import std/[macros, macrocache]
+  {.experimental: "caseStmtMacros".}
+
+  macro unpack*(name: typeToMatch, body: untyped): untyped =
+    result = unpackImpl(name, body, $typeToMatch)
+
+  macro unpack*(name: var typeToMatch, body: untyped): untyped =
+    result = unpackImpl(name, body, $typeToMatch, mutable = true)
+  
+  macro unpack*(name: typeToMatch, itName, body: untyped): untyped =
+    result = unpackImpl(name, body, $typeToMatch, itName)
+
+  macro unpack*(name: var typeToMatch, itName, body: untyped): untyped =
+    result = unpackImpl(name, body, $typeToMatch, itName, true)
+
+  when (NimMajor, NimMinor) < (1, 5):
+    macro match*(entry: typeToMatch): untyped =
+     result = caseImpl(entry, $typeToMatch)
+
+    macro match*(entry: var typeToMatch): untyped =
+      result = caseImpl(entry, $typeToMatch, true)
+  else:
+    macro `case`*(entry: typeToMatch): untyped =
+     result = caseImpl(entry, $typeToMatch)
+
+    macro `case`*(entry: var typeToMatch): untyped =
+      result = caseImpl(entry, $typeToMatch, true)
+
