@@ -82,88 +82,86 @@ proc genInitProcs(entryTyp: NimNode, allowedTypes: seq[NimNode]): NimNode =
         ## Allows easy creation of Entries
         `entryTyp`(kind: `enm`, `fieldName`: val)
 
+proc caseImpl*(body: NimNode, typeToMatch: string, mutable = false): Nimnode = 
+  result = body
+  let accessor = result[0].copyNimTree()
+  result[0] = newDotExpr(result[0], ident"kind")
+  let elseBody = result[^1]
+  for base in CacheTable"HseqCaseTable"[typeToMatch]:
+    let 
+      fieldName = base[0].toValName
+      fieldAccess = newDotExpr(accessor, fieldName)
+      itDef = 
+        if mutable:
+          let byAddr = nnkPragmaExpr.newTree(ident"it", nnkPragma.newTree(ident"byaddr"))
+          newVarStmt(byAddr, fieldAccess)
+        else:
+          newLetStmt(ident"it", fieldAccess)
+
+    block searchType:
+      for i, newCond in result[1..^1]:
+        if base[0].eqIdent(newCond[0]):
+          newCond[0] = base[1]
+          newCond[^1].insert 0, itDef
+          result[i + 1] = newCond
+          break searchType# We found out node, skip elseGeneration
+
+      if elseBody.kind == nnkElse: # We want to emit `of `int`: let it = `a.intval`
+        let newBranch = nnkOfBranch.newTree(base[1])
+        newBranch.add elseBody[0].copyNimTree
+        newBranch[^1].insert 0, itDef
+        result.insert result.len - 1, newBranch
+
+  if result[^1].kind == nnkElse:
+    result.del(result.len - 1, 1)
+
+proc unpackImpl*(name, body: NimNode, typeToMatch: string, itName = ident"it", mutable = false): Nimnode =
+  result = nnkCaseStmt.newTree(newDotExpr(name, ident"kind"))
+  for x in CacheTable"HseqCaseTable"[typeToMatch]:
+    result.add x.copyNimTree()
+    result[^1].del(0, 1)
+    let 
+      fieldName = x[0].toValName
+      fieldAccess = newDotExpr(name, fieldName)
+      itDef = 
+        if mutable:
+          let byAddr = nnkPragmaExpr.newTree(itName, nnkPragma.newTree(ident"byaddr"))
+          newVarStmt(byAddr, fieldAccess)
+        else:
+          newLetStmt(itName, fieldAccess)
+      copyBody = body.copyNimTree
+    copyBody.insert 0, itDef
+    result[^1].add copyBody
 template makeMatch*(typeToMatch: typed) {.dirty.}= 
   import std/[macros, macrocache]
   {.experimental: "caseStmtMacros".}
-  
-  proc caseImpl(body: NimNode, mutable = false): Nimnode = 
-    result = body
-    let accessor = result[0].copyNimTree()
-    result[0] = newDotExpr(result[0], ident"kind")
-    let elseBody = result[^1]
-    for base in CacheTable"HseqCaseTable"[$typeToMatch]:
-      let 
-        fieldName = base[0].toValName
-        fieldAccess = newDotExpr(accessor, fieldName)
-        itDef = 
-          if mutable:
-            let byAddr = nnkPragmaExpr.newTree(ident"it", nnkPragma.newTree(ident"byaddr"))
-            newVarStmt(byAddr, fieldAccess)
-          else:
-            newLetStmt(ident"it", fieldAccess)
-
-      block searchType:
-        for i, newCond in result[1..^1]:
-          if base[0].eqIdent(newCond[0]):
-            newCond[0] = base[1]
-            newCond[^1].insert 0, itDef
-            result[i + 1] = newCond
-            break searchType# We found out node, skip elseGeneration
-
-        if elseBody.kind == nnkElse: # We want to emit `of `int`: let it = `a.intval`
-          let newBranch = nnkOfBranch.newTree(base[1])
-          newBranch.add elseBody[0].copyNimTree
-          newBranch[^1].insert 0, itDef
-          result.insert result.len - 1, newBranch
-
-    if result[^1].kind == nnkElse:
-      result.del(result.len - 1, 1)
-
-  proc unpackImpl(name, body: NimNode, itName = ident"it", mutable = false): Nimnode =
-    result = nnkCaseStmt.newTree(newDotExpr(name, ident"kind"))
-    for x in CacheTable"HseqCaseTable"[$typeToMatch]:
-      result.add x.copyNimTree()
-      result[^1].del(0, 1)
-      let 
-        fieldName = x[0].toValName
-        fieldAccess = newDotExpr(name, fieldName)
-        itDef = 
-          if mutable:
-            let byAddr = nnkPragmaExpr.newTree(itName, nnkPragma.newTree(ident"byaddr"))
-            newVarStmt(byAddr, fieldAccess)
-          else:
-            newLetStmt(itName, fieldAccess)
-        copyBody = body.copyNimTree
-      copyBody.insert 0, itDef
-      result[^1].add copyBody
-
 
   macro unpack*(name: typeToMatch, body: untyped): untyped =
-    result = unpackImpl(name, body)
+    result = unpackImpl(name, body, $typeToMatch)
 
   macro unpack*(name: var typeToMatch, body: untyped): untyped =
-    result = unpackImpl(name, body, mutable = true)
+    result = unpackImpl(name, body, $typeToMatch, mutable = true)
   
   macro unpack*(name: typeToMatch, itName, body: untyped): untyped =
-    result = unpackImpl(name, body, itName)
+    result = unpackImpl(name, body, $typeToMatch, itName)
 
   macro unpack*(name: var typeToMatch, itName, body: untyped): untyped =
-    result = unpackImpl(name, body, itName, true)
+    result = unpackImpl(name, body, $typeToMatch, itName, true)
 
   when (NimMajor, NimMinor) < (1, 5):
     macro match*(entry: typeToMatch): untyped =
-     result = caseImpl(entry)
+     result = caseImpl(entry, $typeToMatch)
 
     macro match*(entry: var typeToMatch): untyped =
-      result = caseImpl(entry, true)
+      result = caseImpl(entry, $typeToMatch, true)
   else:
     macro `case`*(entry: typeToMatch): untyped =
-     result = caseImpl(entry)
+     result = caseImpl(entry, $typeToMatch)
 
     macro `case`*(entry: var typeToMatch): untyped =
-      result = caseImpl(entry, true)
+      result = caseImpl(entry, $typeToMatch, true)
 
-proc makeVariant(variantName, enumName: Nimnode, allowedTypes: seq[NimNode]): Nimnode =
+proc makeVariantImpl(variantName, enumName: Nimnode, allowedTypes: seq[NimNode]): Nimnode =
   ## Emits a variant for any given reason, can be used in any generic type this way,
   ## instead of just a seq[T] alias.
   let
@@ -198,7 +196,7 @@ macro makeHseq*(name: untyped, types: typedesc): untyped =
   let 
     allowedTypes = types.extractTypes
     typeName = ident($name & "Entry")
-  result.add makeVariant(typeName, ident($name & "EntryKind"), allowedTypes)
+  result.add makeVariantImpl(typeName, ident($name & "EntryKind"), allowedTypes)
   result.add quote do:
     type `name` = seq[`typeName`]
 
@@ -208,9 +206,17 @@ macro makeHseq*(name, typeName: untyped, types: typedesc): untyped =
   result = newStmtList()
   let 
     allowedTypes = types.extractTypes 
-  result.add makeVariant(typeName, ident($typeName & "Kind"), allowedTypes)
+  result.add makeVariantImpl(typeName, ident($typeName & "Kind"), allowedTypes)
   result.add quote do:
     type `name` = seq[`typeName`]
+
+macro makeVariant*(name: untyped, allowedTypes: typedesc): untyped =
+  ## Creates just a variant object and all the utillity macros.
+  result = makeVariantImpl(name, ident($name & "Kind"), allowedTypes.extractTypes)
+
+macro makeVariant*(name, enumName: untyped, allowedTypes: typedesc): untyped =
+  ## Creates just a variant object and gives a specific name to the enum
+  result = makeVariantImpl(name, enumName, allowedTypes.extractTypes)
 
 proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =
   ## Give a type and a val iterate through the casestmt to extract,

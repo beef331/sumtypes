@@ -4,6 +4,18 @@ type
   AcceptedTypes = int or float
 
 makeHseq(Test, AcceptedTypes)
+makeVariant(NewObject, AcceptedTypes)
+
+var t = 300.toNewObject
+unpack t:
+  assert it == 300
+t = 3.14
+
+case t:
+of float: assert it == 3.14 # Due to `int` or `float` need to ensure this only happens on float
+else: discard
+
+
 var a: Test
 
 a.add(300)
@@ -41,8 +53,6 @@ a.filter(float) # Removes all floats
 
 for it in a:
   echo it
-
-let b = 10
 
 a[0] = 10.1
 
