@@ -43,7 +43,25 @@ proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]=
 
 proc toValName*(val: NimNode, nameSize: int): NimNode = ident(($val).toLowerAscii[nameSize..^1] & "Val")
 
-proc genAdd(name, typD: NimNode, allowedTypes: seq[NimNode]): NimNode =
+proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
+  let
+    strName = $name
+    procName = ident"$"
+    entryName = ident"entry"
+    entryTyp = ident(strName & "entry")
+    stmt = caseTable[strName]
+    body = nnkCaseStmt.newTree(newDotExpr(entryName, ident"kind"))
+  for i, x in stmt:
+    let 
+      fieldName = x[1].toValName(strName.len)
+      enm = x[1]
+    body.add nnkOfBranch.newTree(enm, newCall(procName, newDotExpr(entryName, fieldName)))
+
+  result = quote do:
+    proc `procName`*(`entryName`: `entryTyp`): string = 
+      `body`
+
+proc genAdd(name, typd: NimNode, allowedTypes: seq[NimNode]): NimNode =
   let
     strName = $name
     theSeq = ident("hseq")
@@ -205,8 +223,9 @@ macro makeHseq*(name: untyped, types: typedesc): untyped =
   result.add entryType
   result.add quote do:
     type `name` = seq[`elementName`]
-  result.add genAdd(name, types, allowedTypes)
+  result.add genAdd(name, types, allowedTypes) 
   result.add genInitProcs(name, allowedTypes)
+  result.add genStringOp(name, allowedTypes)
   result.add newCall(ident"makeMatch", elementName)
 
 proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =

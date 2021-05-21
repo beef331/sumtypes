@@ -40,8 +40,7 @@ assert a.toSeq(float) == @[0.5, 0.5]# Returns all floats in `a`
 a.filter(float) # Removes all floats
 
 for it in a:
-  unpack(it):
-    echo it
+  echo it
 
 a{0} = 10.1
 
