@@ -19,8 +19,6 @@ const Lut = [
 
 func foo(k: Kind, n: int): array[3, int] = LUT[k][n]
 
-for x in 0..2:
-  echo foo(x.Kind, x)
-echo foo(A, 0)
-echo foo(B, 1)
-echo foo(C, 2)
+assert foo(A, 0) == [1, 2, 3]
+assert foo(B, 1) == [4, 5, 6]
+assert foo(C, 2) == [7, 8, 9]
