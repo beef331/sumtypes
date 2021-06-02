@@ -6,8 +6,11 @@ const caseTable = CacheTable"CaseTable" # Holds `of T, enumName`
 proc extractTypes(n: NimNode): seq[NimNode] =
   case n.kind:
   of nnkTypeDef:
-    if n[^1].kind == nnkInfix: # This is a typeclass
+    case n[^1].kind:
+    of nnkInfix: # This is a typeclass
       result.add n[^1].extractTypes
+    of nnkEnumTy:
+      result.add n[0].extractTypes
     else: # Object, enum, or tuple
       result.add n[0]
   of nnkSym:
@@ -26,9 +29,11 @@ proc extractTypes(n: NimNode): seq[NimNode] =
       result.add n
   of nnkPar: # Anonymous tuple support
     result.add n
+  of nnkPragmaExpr:
+    result.add n[0]
   else: discard
 
-proc toCleanIdent*(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]","")).capitalizeAscii
+proc toCleanIdent*(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]",""), (",", ""), (" ", "")).capitalizeAscii
 
 proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]= 
   ## Takes a list of types converts them into enumNames and adds the caseStmt
@@ -39,7 +44,7 @@ proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]=
     result.add enumVal
   caseTable[typeName] = cstmt
 
-proc toValName*(val: NimNode): NimNode = ident(($val).toLowerAscii & "Val")
+proc toValName*(val: NimNode): NimNode = ident((val.toCleanIdent).toLowerAscii & "Val")
 
 proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
   let
@@ -52,7 +57,6 @@ proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
       fieldName = x[0].toValName
       enm = x[1]
     body.add nnkOfBranch.newTree(enm, newCall(procName, newDotExpr(entryName, fieldName)))
-
   result = quote do:
     proc `procName`*(`entryName`: `name`): string = 
       `body`
@@ -101,7 +105,7 @@ proc caseImpl*(body: NimNode, typeToMatch: string, mutable = false): Nimnode =
 
     block searchType:
       for i, newCond in result[1..^1]:
-        if base[0].eqIdent(newCond[0]):
+        if base[0].toCleanIdent.eqIdent newCond[0].toCleanIdent:
           newCond[0] = base[1]
           newCond[^1].insert 0, itDef
           result[i + 1] = newCond
