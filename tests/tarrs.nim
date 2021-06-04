@@ -1,10 +1,10 @@
-import hseq
+import sumtypes
 type
   Kind = enum A, B, C
   BaseType* = array[3, int]
   AcceptedTypes = BaseType or array[2, BaseType] or array[3, BaseType]
 
-makeVariant(ArrWrapper, AcceptedTypes)
+sumType(ArrWrapper, AcceptedTypes)
 
 proc `[]`(arr: ArrWrapper, b: int): BaseType =
   case arr:

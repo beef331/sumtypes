@@ -2,7 +2,7 @@
 
 version       = "0.1.0"
 author        = "Jason"
-description   = "Easy hetrogenous sequences"
+description   = "Easy Nim Sumtypes"
 license       = "MIT"
 srcDir        = "src"
 
@@ -10,4 +10,3 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 1.4.2"
-switch("experimental", "dynamicBindSym")

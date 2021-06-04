@@ -1,14 +1,52 @@
-# hseq - An easy to use Nim heterogeneous sequence library
+# SumTypes - An easy to use Nim Sum Type library.
 
-## How to use
-First define a typeclass of the types you want to store in the collection:
 ```nim
-type AcceptedTypes = int or float
+import sumtypes
+type SumValues = string or int or float
+sumType(SomeData, SumValues)
+var a: SomeData = "hello world"
+echo a
+a = 100
+echo a
+a = 3.14
+echo a
 ```
 
-Now you can construct the `Hseq` objects and procedures by doing:
+## How to use
+### Sum Type
+First define a typeclass of the types you want to store in the collection:
 ```nim
-IntFloat.makeHseq(AcceptedTypes)
+import sumtypes
+type AcceptedTypes = int or float
+```
+Now you can use the `sumType` macro to emit a variant object based off the `AcceptedTypes`:
+```nim
+sumType(YourTyp, AcceptedTypes)
+```
+This emits a new type entitled `YourTyp`, which also comes with helper macro support which are as follows:
+```nim
+var a: YourTyp = 10 # Implict converter
+
+case a: # Custom case statement that works with types
+of int:
+  echo it # Unpacking of the type in a case statement
+else: # Works for remaining types
+  discard
+
+a.unpack: # Unpacks it and runs the body on all kinds
+  echo it 
+
+a.unpack(someName): # Unpacks it as `someName`
+  echo someName
+
+a = 3.1415 # Implict converter
+```
+
+### SumTypeSeq
+
+Now you can construct the `SumTypeSeq` objects and procedures by doing:
+```nim
+sumTypeSeq(IntFloat, AcceptedTypes)
 ```
 This emits an enum, procedures, and types. 
 Internally this library makes a object variant per each type.
@@ -25,7 +63,7 @@ yourSeq.drop(float) # This will remove all instances of the `float` variant from
 yourSeq.filter(int) # This will remove all other types other than `int`
 assert yourSeq.len == 1
 
-yourSeq[0] = 100 # A array assignment macro that constructs a new object from the right hand.
+yourSeq[0] = 100 # Assigns `0` to a new variant with value 100.
 
 yourSeq[0] = initIntFloatEntry(100) # The above is the same as doing this, makes new variant and assigns it.
 
@@ -34,7 +72,7 @@ yourSeq.pop: # Removes the last element, passing `it` into the body.
 assert yourSeq.len == 0
 ```
 
-Along with the `TypeNameEntry` comes a case statement macro which allows using types to control flow. Internally `it` is emitted for the unpacked value.
+Just like with `sumType` a case statement macro which allows using types to control flow. Internally `it` is emitted for the unpacked value.
 ```nim
 type AcceptedTypes = float or int
 makeHseq(Numbers, AcceptedTypes)

@@ -1,8 +1,8 @@
-import hseq
+import sumtypes
 type
   Nothing = object
   Accepted = int or Nothing
-makeVariant(IntOption, Accepted)
+sumType(IntOption, Accepted)
 
 proc doThing(i: IntOption) = 
   case i:

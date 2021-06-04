@@ -58,7 +58,7 @@ proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
       enm = x[1]
     body.add nnkOfBranch.newTree(enm, newCall(procName, newDotExpr(entryName, fieldName)))
   result = quote do:
-    proc `procName`*(`entryName`: `name`): string = 
+    proc `procName`*(`entryName`: `name`): string {.inline.} = 
       `body`
 
 proc genConverters(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
@@ -71,7 +71,19 @@ proc genConverters(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
       fieldName = x.toValName()
       enm = ident(strName & x.toCleanIdent)
     result.add quote do:
-      converter `converterName`*(val: `x`): `name` = `name`(kind: `enm`, `fieldName`: val) 
+      converter `converterName`*(val: `x`): `name` = `name`(kind: `enm`, `fieldName`: val)
+
+proc genComps(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
+  let
+    strName = $name
+    procName = ident"=="
+  result = newStmtList()
+  for x in allowedTypes:
+    let
+      fieldName = x.toValName()
+      enm = ident(strname & x.toCleanIdent)
+    result.add quote do:
+      proc `procName`*(entry: `name`, val: `x`): bool {.inline.} = entry.kind == `enm` and `x`(entry.`fieldName`) == val
 
 proc genInitProcs(entryTyp: NimNode, allowedTypes: seq[NimNode]): NimNode =
   let procName = ident("init" & $entryTyp)
@@ -92,33 +104,34 @@ proc caseImpl*(body: NimNode, typeToMatch: string, mutable = false): Nimnode =
   let accessor = result[0].copyNimTree()
   result[0] = newDotExpr(result[0], ident"kind")
   let elseBody = result[^1]
+  var newOfBranches: seq[NimNode]
   for base in CacheTable"CaseTable"[typeToMatch]:
     let 
       fieldName = base[0].toValName
       fieldAccess = newDotExpr(accessor, fieldName)
       itDef = 
         if mutable:
-          let byAddr = nnkPragmaExpr.newTree(ident"it", nnkPragma.newTree(ident"byaddr"))
+          let byAddr = nnkPragmaExpr.newTree(ident"it", nnkPragma.newTree(ident"byaddr"), nnkPragma.newTree(ident"used"))
           newVarStmt(byAddr, fieldAccess)
         else:
           newLetStmt(ident"it", fieldAccess)
 
     block searchType:
       for i, newCond in result[1..^1]:
-        if base[0].toCleanIdent.eqIdent newCond[0].toCleanIdent:
-          newCond[0] = base[1]
-          newCond[^1].insert 0, itDef
-          result[i + 1] = newCond
-          break searchType# We found out node, skip elseGeneration
+        for j, entry in newCond[0..^2]:
+          if base[0].toCleanIdent.eqIdent entry.toCleanIdent:
+            let newTree = newCond[^1].copyNimTree
+            newTree.insert 0, itDef
+            newOfBranches.add nnkOfBranch.newTree(base[1], newTree)
+            break searchType# We found out node, skip elseGeneration
 
       if elseBody.kind == nnkElse: # We want to emit `of `int`: let it = `a.intval`
         let newBranch = nnkOfBranch.newTree(base[1])
         newBranch.add elseBody[0].copyNimTree
         newBranch[^1].insert 0, itDef
-        result.insert result.len - 1, newBranch
-
-  if result[^1].kind == nnkElse:
-    result.del(result.len - 1, 1)
+        newOfBranches.add newBranch
+  result.del(1, result.len - 1)
+  result.add newOfBranches
 
 proc unpackImpl*(name, body: NimNode, typeToMatch: string, itName = ident"it", mutable = false): Nimnode =
   ## For internal use only
@@ -161,13 +174,14 @@ proc makeVariantImpl(variantName, enumName: Nimnode, allowedTypes: seq[NimNode])
     val.add newIdentDefs(typ.toValName, typ, newEmptyNode())
     recList.add val
   result.add typeDef
+  result.add genComps(variantName, allowedTypes)
   result.add genConverters(variantName, allowedTypes) 
   result.add genInitProcs(variantName, allowedTypes)
   result.add genStringOp(variantName, allowedTypes)
   result.add newCall(ident"makeMatch", variantName)
 
 
-macro makeHseq*(name: untyped, types: typedesc): untyped =
+macro sumTypeSeq*(name: untyped, types: typedesc): untyped =
   ## Emits a alias of `type name = seq[NameEntry]` and also
   ## NameEntryKind enum with all types in `types`
   result = newStmtList()
@@ -179,8 +193,8 @@ macro makeHseq*(name: untyped, types: typedesc): untyped =
     type `name` = seq[`typeName`]
 
 
-macro makeHseq*(name, typeName: untyped, types: typedesc): untyped =
-  ## Variant of `makeHseq` which allows specifying the name of the EntryEmitted
+macro sumTypeSeq*(name, typeName: untyped, types: typedesc): untyped =
+  ## Variant of `sumTypeSeq` which allows specifying the name of the EntryEmitted
   result = newStmtList()
   let 
     allowedTypes = types.extractTypes 
@@ -188,11 +202,11 @@ macro makeHseq*(name, typeName: untyped, types: typedesc): untyped =
   result.add quote do:
     type `name` = seq[`typeName`]
 
-macro makeVariant*(name: untyped, allowedTypes: typedesc): untyped =
+macro sumType*(name: untyped, allowedTypes: typedesc): untyped =
   ## Creates just a variant object and all the utillity macros.
   result = makeVariantImpl(name, ident($name & "Kind"), allowedTypes.extractTypes)
 
-macro makeVariant*(name, enumName: untyped, allowedTypes: typedesc): untyped =
+macro sumType*(name, enumName: untyped, allowedTypes: typedesc): untyped =
   ## Creates just a variant object and gives a specific name to the enum
   result = makeVariantImpl(name, enumName, allowedTypes.extractTypes)
 
