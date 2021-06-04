@@ -25,7 +25,7 @@ sumType(YourTyp, AcceptedTypes)
 ```
 This emits a new type entitled `YourTyp`, which also comes with helper macro support which are as follows:
 ```nim
-var a: YourTyp = 10 # Implict converter
+var a: YourTyp = 10 # Implicit converter
 
 case a: # Custom case statement that works with types
 of int:
@@ -39,7 +39,7 @@ a.unpack: # Unpacks it and runs the body on all kinds
 a.unpack(someName): # Unpacks it as `someName`
   echo someName
 
-a = 3.1415 # Implict converter
+a = 3.1415 # Implicit converter
 ```
 
 ### SumTypeSeq
