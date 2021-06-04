@@ -75,7 +75,7 @@ assert yourSeq.len == 0
 Just like with `sumType` a case statement macro which allows using types to control flow. Internally `it` is emitted for the unpacked value.
 ```nim
 type AcceptedTypes = float or int
-makeHseq(Numbers, AcceptedTypes)
+sumTypeSeq(Numbers, AcceptedTypes)
 var a: Numbers
 a.add(100)
 a.add(1.0)
