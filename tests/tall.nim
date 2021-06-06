@@ -65,6 +65,8 @@ block: # Make Hseq test.
     it.unpack(test): # unpacks `it`, aliasing the underlying value to `test`.
       discard test
 
+  unpack(a.pop):
+    discard it
 
 
 var c: NewObject = 10 # Implict converter

@@ -67,7 +67,7 @@ yourSeq[0] = 100 # Assigns `0` to a new variant with value 100.
 
 yourSeq[0] = initIntFloatEntry(100) # The above is the same as doing this, makes new variant and assigns it.
 
-yourSeq.pop: # Removes the last element, passing `it` into the body.
+unpack(yourSeq.pop): # Removes the last element, passing `it` into the body.
   echo it
 assert yourSeq.len == 0
 ```
