@@ -31,6 +31,8 @@ proc extractTypes(n: NimNode): seq[NimNode] =
     result.add n
   of nnkPragmaExpr:
     result.add n[0]
+  of nnkProcTy:
+    result.add n
   else: discard
 
 proc toCleanIdent*(typ: NimNode): string = typ.repr.multiReplace(("[", ""), ("]",""), (",", ""), (" ", "")).capitalizeAscii
