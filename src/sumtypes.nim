@@ -44,11 +44,16 @@ proc generateEnumInfo(types: seq[NimNode], typeName: string): seq[NimNode]=
     let enumVal = ident(typeName & typ.toCleanIdent)
     cstmt.add nnkOfBranch.newTree(typ, enumVal) # We store `of a, b` so we can check a after
     result.add enumVal
-  caseTable[typeName] = cstmt
+  block Search:
+    for x, y in caseTable:
+      if x == typeName:
+        break Search
+    caseTable[typeName] = cstmt
 
 proc toValName*(val: NimNode): NimNode = ident((val.toCleanIdent).toLowerAscii & "Val")
 
 proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
+  ## Generates string operations for the variant
   let
     strName = $name
     procName = ident"$"
@@ -64,6 +69,7 @@ proc genStringOp(name: Nimnode, allowedTypes: seq[NimNode]): NimNode =
       `body`
 
 proc genConverters(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
+  ## Generates converters from the allowedTypes to variant
   let
     strName = $name
     converterName = ident("to" & strName)
@@ -76,18 +82,34 @@ proc genConverters(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
       converter `converterName`*(val: `x`): `name` = `name`(kind: `enm`, `fieldName`: val)
 
 proc genComps(name: NimNode, allowedTypes: seq[NimNode]): NimNode =
+  ## Generates comparison operators for the underlying variants
   let
     strName = $name
     procName = ident"=="
+  var branches: seq[NimNode]
   result = newStmtList()
   for x in allowedTypes:
     let
       fieldName = x.toValName()
       enm = ident(strname & x.toCleanIdent)
+      comp = nnkStmtList.newTree(nnkAsgn.newTree( ident"result", nnkInfix.newTree(ident"==", newDotExpr(ident"val", fieldName), newDotExpr(ident"entry", fieldName))))
+    branches.add nnkOfBranch.newTree(enm, comp)
     result.add quote do:
       proc `procName`*(entry: `name`, val: `x`): bool {.inline.} = entry.kind == `enm` and `x`(entry.`fieldName`) == val
+  let
+    val = ident"val"
+    entry = ident"entry"
+    caseStmt = nnkCaseStmt.newTree(newDotExpr(val, ident"kind"))
+  caseStmt.add(branches)
+
+  let varEq = quote do:
+      proc `procName`*(`val`, `entry`: `name`): bool {.inline.} =
+        if `val`.kind == `entry`.kind:
+          `caseStmt`
+  result.add varEq
 
 proc genInitProcs(entryTyp: NimNode, allowedTypes: seq[NimNode]): NimNode =
+  ## Generates init procs for variant kinds
   let procName = ident("init" & $entryTyp)
   result = newStmtList()
   for i, x in caseTable[$entryTyp]:
@@ -186,6 +208,10 @@ proc makeVariantImpl(variantName, enumName: Nimnode, allowedTypes: seq[NimNode])
 macro sumTypeSeq*(name: untyped, types: typedesc): untyped =
   ## Emits a alias of `type name = seq[NameEntry]` and also
   ## NameEntryKind enum with all types in `types`
+  runnableExamples:
+    type Accepted = int or float
+    sumTypeSeq(YourCol, Accepted)
+    var a = @[10.YourColEntry, 20.4, 100, 2.03]
   result = newStmtList()
   let 
     allowedTypes = types.extractTypes
@@ -194,23 +220,15 @@ macro sumTypeSeq*(name: untyped, types: typedesc): untyped =
   result.add quote do:
     type `name` = seq[`typeName`]
 
-
-macro sumTypeSeq*(name, typeName: untyped, types: typedesc): untyped =
-  ## Variant of `sumTypeSeq` which allows specifying the name of the EntryEmitted
-  result = newStmtList()
-  let 
-    allowedTypes = types.extractTypes 
-  result.add makeVariantImpl(typeName, ident($typeName & "Kind"), allowedTypes)
-  result.add quote do:
-    type `name` = seq[`typeName`]
-
 macro sumType*(name: untyped, allowedTypes: typedesc): untyped =
   ## Creates just a variant object and all the utillity macros.
-  result = makeVariantImpl(name, ident($name & "Kind"), allowedTypes.extractTypes)
+  runnableExamples:
+    type Accepted = int or float
+    sumType(IntFloat, Accepted)
+    var a = 10.IntFloat
+    a = 10.3
 
-macro sumType*(name, enumName: untyped, allowedTypes: typedesc): untyped =
-  ## Creates just a variant object and gives a specific name to the enum
-  result = makeVariantImpl(name, enumName, allowedTypes.extractTypes)
+  result = makeVariantImpl(name, ident($name & "Kind"), allowedTypes.extractTypes)
 
 proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =
   ## Give a type and a val iterate through the casestmt to extract,
@@ -222,15 +240,15 @@ proc getFieldEnumName(seqType, val: NimNode): (NimNode, NimNode) =
       break
 
 proc getGenericType(node: NimNode): Nimnode =
-  result = node.getImpl
-  case result.kind:
-  of nnkIdentDefs:
-    result = result[1].getImpl[^1][^1]
-  else:
-    result = result[^1]
+  result = node.getType[1]
 
 macro toSeq*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` returning all variants of the given type
+  runnableExamples:
+    type Accepted = int or float
+    sumTypeSeq(YourCol, Accepted)
+    let yourCol = @[10.YourColEntry, 20.4, 100, 2.03]
+    assert (yourCol.toSeq(int)) == @[10, 100]
   let seqType = hseq.getGenericType
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
@@ -244,6 +262,12 @@ macro toSeq*(hseq: typed, val: typedesc): untyped =
 
 macro filter*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` removing all variants that do not map to that type
+  runnableExamples: 
+    type Accepted = int or float
+    sumTypeSeq(YourCol, Accepted)
+    var a = @[10.YourColEntry, 20.4, 100, 2.03]
+    a.filter(int)
+    assert a == @[10.YourColEntry, 100]
   let seqType = hseq.getGenericType
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
@@ -256,6 +280,12 @@ macro filter*(hseq: typed, val: typedesc): untyped =
 
 macro drop*(hseq: typed, val: typedesc): untyped =
   ## Iterates the `hseq` removing all variants that do map to that type
+  runnableExamples: 
+    type Accepted = int or float
+    sumTypeSeq(YourCol, Accepted)
+    var a = @[10.YourColEntry, 20.4, 100, 2.03]
+    a.drop(int)
+    assert a == @[20.4.YourColEntry, 2.03]
   let seqType = hseq.getGenericType
   var (fieldName, enumName) = getFieldEnumName(seqType, val)
   assert nnkEmpty notin {fieldName.kind, enumName.kind}, "Cannot filter a type not in the variant"
