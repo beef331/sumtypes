@@ -1,3 +1,7 @@
+#### Deprecation
+
+Highly suggest using [union](https://github.com/alaviss/union) instead.
+
 # SumTypes - An easy to use Nim Sum Type library.
 
 ```nim
